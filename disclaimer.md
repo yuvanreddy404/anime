@@ -42,5 +42,5 @@ Contacting the maintainer
 </h2>
 <br>
 
-Begin by making a GitHub issue or sending an email to port19@port19.xyz
+Begin by making a GitHub issue
 </div>

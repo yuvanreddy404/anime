@@ -1,9 +1,79 @@
 # Hacking ani-cli
-Ani-cli is set up to scrape one platform - currently allanime. Supporting multiple sources at a time would require more changes than we (the maintainers) find worth doing, for this reason any feature request asking for a new site is rejected.
 
-However ani-cli being open-source and the pirate anime streaming sites being so similar you can hack ani-cli to support any site that follows a few conventions.
+Ani-cli is set up to scrape one platform - currently allanime. The modular provider system allows multiple streaming sources to be supported simultaneously.
+
+## Provider Architecture
+
+The provider system is a modular framework that allows the script to:
+
+- **Discover** every available streaming source for a given episode
+- **Fetch** stream metadata from all sources in parallel
+- **Present** a unified selection menu with quality metadata
+- **Fall back** if a chosen provider's stream fails
+
+### Provider Modules
+
+Each provider is a separate file in `providers/` that registers itself via:
+
+```
+provider_register <id> <display_name> <extract_regex> [fetch_type]
+```
+
+| Parameter     | Description                                    |
+|---------------|------------------------------------------------|
+| `id`          | Unique identifier (e.g. `wixmp`, `youtube`)    |
+| `display_name`| Human-readable name (e.g. `WixMP`, `YouTube`)  |
+| `extract_regex`| `sed` expression to extract source URL from `$resp` |
+| `fetch_type`  | `"default"` (uses `get_links`) or custom type   |
+
+Example provider module (`providers/wixmp.sh`):
+```sh
+provider_register "wixmp" "WixMP" "/Default :/p" "default"
+```
+
+### Adding a new provider
+
+1. Create `providers/yourprovider.sh`
+2. Add a single `provider_register` call with the appropriate extraction regex
+3. If the provider needs custom fetch logic (like Filemoon's decryption), add it to the main script and set `fetch_type` to a unique name, then handle it in `provider_fetch_streams()`
+
+### Provider System Files
+
+| File | Purpose |
+|------|---------|
+| `providers/provider.sh` | Framework: registration, detection, caching, selection menu |
+| `providers/wixmp.sh`    | WixMP (default HLS source) |
+| `providers/youtube.sh`  | YouTube (web source) |
+| `providers/sharepoint.sh`| SharePoint (web source) |
+| `providers/mp4upload.sh` | Mp4Upload (direct MP4) |
+| `providers/filemoon.sh` | Filemoon (encrypted HLS source) |
+
+### User Flow
+
+```
+Search anime → select → choose episode
+     ↓
+Fetch all available providers in parallel
+     ↓
+Provider selection menu (fzf / bash select)
+     ↓
+Quality selection
+     ↓
+Play with chosen provider
+     ↓
+On failure: prompt to try another provider
+```
+
+### Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `ANI_DEBUG=1` | Print debug logs during provider fetching |
+
+---
 
 ## Prerequisites
+
 Here's the of skills you'll need and the guide will take for granted:
 - basic shell scripting
 - understanding of http(s) requests and proficiency with curl
@@ -20,8 +90,9 @@ The steps to get to a link from a query is the following:
 1. search with the site's search page for the query
 2. extract IDs from response, user chooses one
 3. extract episode numbers from an overview page, user chooses one
-4. download player(s) for that id+episode number combination, extract links
-5. quality selection selects one that is played
+4. the provider system discovers and fetches every available streaming source for the selected episode
+5. the user selects a provider from the menu
+6. quality selection selects one stream that is played
 From here 1-4 need to be changed to support another site. #Reverse-engineering will answer how.
 
 ## Reverse-engineering
@@ -42,6 +113,9 @@ The series identifier is stored in the `id` variable by the script and the episo
 Each episode has an embedded player that contains the links to the videos to be played.
 Your goal is to get these links along with the resolution (quality) of the streams.
 The embedded player has a separate URL from the episode page, but you can always get there from the episode page (and in some cases just by knowing the id and the episode number).
+
+### Provider extraction
+The `fetch_episode_providers` function (in `providers/provider.sh`) queries the episode embed API and extracts source URLs into `$resp`. Each registered provider's extraction regex is tested against `$resp`. The providers that match are fetched in parallel.
 
 ### Searching
 The search page is usually easy to find on these websites. The searching method varies.
@@ -74,16 +148,12 @@ Then ani-cli should fail with `Episode not released!`
 
 ### Getting the player embed
 After selecting an episode, the next step is to load its page and extract the embed(s).
-In case you can get them without loading the episode page, replace from the `get the embed urls...` part of the code to the removal of the cache dir with a single call to `get_links` and load its output into `links`.
-Then move to the next step (and remove all functions rendered unused).
+In case you can get them without loading the episode page, the provider system calls `fetch_episode_providers()` which queries the embed API, extracts source URLs for each registered provider, and fetches stream links in parallel.
 
 The first request is to get the episode page, then the following commands extract the embed players' links, one at a line with the format `sourcename : url`.
 These are listed into `resp`.
-From here they are separated and parsed by `provider_init` and the first half onf `generate_link`.
-Some sites (like allanime) have these urls not in plaintext but "encrypted". The decrypt allanime function does this post-processing, it might need to be changed or discarded completely.
-
-If there's only one embed source, the `generate links..` block can be reduced to a single call to `generate_link`.
-The current structure does the aggregation of many providers asynchronously, but this is not needed if there's only one source.
+From here each provider is extracted using its registered regex and fetched via `provider_fetch_streams()`.
+Some sites (like allanime) have these urls not in plaintext but "encrypted". The `process_response` function handles this decryption.
 
 ### Extracting the media links
 
@@ -95,8 +165,7 @@ They need to be printed to the function's stdout in a format of `quality >link`.
 The quality string needs to be extracted from the player along with the link and is supposed to be a numeric representation of the resolution.
 Sometimes a resolution can't be determined, in this case have the regex match for whatever is in its place.
 
-The output of the `get_links` function needs to be concatenated into the `links` variable - with a single call if there's only one source, or with the asynchronous mode if there are more.
-From here the `get_episode_url` function will continue with quality selection which you need not to alter.
+Each provider's output goes into a separate cache file (`$PROVIDER_CACHE_DIR/<provider_id>`). The provider menu reads these files to determine quality metadata and present the user with a choice. Quality selection then works as before from the full set of links.
 
 ## Other functionality
 Assuming you completed all the necessary modifications, ani-cli should completely work for you now.

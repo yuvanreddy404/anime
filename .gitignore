@@ -1,0 +1,18 @@
+# OS files
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Downloaded torrent cache
+*.torrent
+
+# Downloaded episodes
+[Anime Time]*
+
+# Vercel project config (contains project/org IDs - deployer-specific)
+.vercel/
+
+# Node modules
+node_modules/
