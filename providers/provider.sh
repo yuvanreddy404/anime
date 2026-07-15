@@ -2,6 +2,7 @@
 # Provider system for ani-cli
 # This file is sourced by the main script and provides the provider framework
 
+# shellcheck disable=SC2034
 PROVIDER_LIST=""
 PROVIDER_AVAILABLE=""
 PROVIDER_CACHED=""
@@ -31,10 +32,12 @@ provider_get_fetch() {
     eval "printf '%s' \"\${PROVIDER_FETCH_${1}}\""
 }
 
+# shellcheck disable=SC2154,SC1090
 provider_load_all() {
     for f in "$PROVIDER_DIR"/*.sh; do
         case "$f" in
             */provider.sh) continue ;;
+            *) ;;
         esac
         [ -f "$f" ] && . "$f"
     done
@@ -75,12 +78,15 @@ provider_extract_url() {
     [ -n "$url" ]
 }
 
+# shellcheck disable=SC2154
 provider_fetch_streams() {
     fetch_type="$(provider_get_fetch "$1")"
+    # shellcheck disable=SC2312
     url=$(printf "%s" "$resp" | sed -n "$(provider_get_extract "$1")" | head -1 | cut -d':' -f2-)
     [ -z "$url" ] && return 1
     # Decode hex-encoded slug to actual path (e.g. "--636c6f636b" -> "/clock")
     decoded="$(hex_to_string "$url")" || decoded="$url"
+    # shellcheck disable=SC2034
     provider_name="$(provider_get_name "$1")"
     if [ "$fetch_type" = "filemoon" ]; then
         get_filemoon_links "$decoded"
@@ -89,10 +95,12 @@ provider_fetch_streams() {
     fi
 }
 
+# shellcheck disable=SC2154
 provider_get_links() {
-    cat "$PROVIDER_CACHE_DIR/$1" 2>/dev/null | sort -g -r -s
+    sort -g -r -s < "$PROVIDER_CACHE_DIR/$1" 2>/dev/null
 }
 
+# shellcheck disable=SC2154,SC2016
 fetch_episode_providers() {
     episode_embed_gql='query ($showId: String!, $translationType: VaildTranslationTypeEnumType!, $episodeString: String!) { episode( showId: $showId translationType: $translationType episodeString: $episodeString ) { episodeString sourceUrls }}'
 
@@ -126,9 +134,12 @@ fetch_episode_providers() {
     debug_log "Fetching providers in parallel..."
     for p in $PROVIDER_AVAILABLE; do
         (
+            # shellcheck disable=SC2034
             cache_dir="$PROVIDER_CACHE_DIR"
+            # shellcheck disable=SC2312
             debug_log "$(provider_get_name "$p")..."
             provider_fetch_streams "$p" >"$PROVIDER_CACHE_DIR/$p" 2>/dev/null
+            # shellcheck disable=SC2312
             debug_log "$(provider_get_name "$p")...Success"
         ) &
     done
@@ -136,6 +147,7 @@ fetch_episode_providers() {
 
     # Propagate m3u8 referrer from subshell (used by download function)
     if [ -f "$PROVIDER_CACHE_DIR/m3u8_refr" ]; then
+        # shellcheck disable=SC2034
         m3u8_refr="$(sed 's/^m3u8_refr >//' "$PROVIDER_CACHE_DIR/m3u8_refr")"
     fi
 
@@ -149,10 +161,11 @@ provider_get_display() {
     highest=$(printf "%s" "$links" | grep -E '^[0-9]+' | sort -rn | head -1 | cut -d'>' -f1)
     [ -z "$highest" ] && highest="?"
     fmt="HLS"
-    [ "$(provider_get_fetch "$p")" = "default" ] && fmt="Auto"
+    [ "$(provider_get_fetch "$p")" = "default" ] && fmt="Auto" || true
     printf "%-12s %5s  %s" "$name" "${highest}p" "$fmt"
 }
 
+# shellcheck disable=SC2154
 select_provider() {
     [ "$PROVIDER_CACHED" != "1" ] && fetch_episode_providers
 
@@ -186,16 +199,17 @@ select_provider() {
         done < "$provider_menu_file"
         printf "%s\n" "------------------------------------------------"
         provider_names="$(cut -f3 < "$provider_menu_file")"
-        old_ifs="$IFS"
-        IFS='
-'
-        # Intentional word-splitting on newlines for select loop
-        # shellcheck disable=SC2086
-        set -- $provider_names
-        IFS="$old_ifs"
-        PS3="Select provider (1-$#): "
-        select selected_name; do
-            [ -n "$selected_name" ] && break
+        provider_count=$(printf "%s" "$provider_names" | wc -l)
+        PS3="Select provider (1-$provider_count): "
+        # Use read instead of select for POSIX compliance
+        while true; do
+            printf "%s" "$PS3"
+            read -r selected_idx
+            case "$selected_idx" in
+                ''|*[!0-9]*) continue ;;
+                *) selected_name=$(printf "%s\n" "$provider_names" | sed -n "${selected_idx}p")
+                   [ -n "$selected_name" ] && break ;;
+            esac
         done
         CURRENT_PROVIDER="$(while IFS='	' read -r idx id display_text; do
             [ "$display_text" = "$selected_name" ] && printf "%s" "$id" && break
@@ -204,9 +218,10 @@ select_provider() {
 
     rm -f "$provider_menu_file"
     [ -z "$CURRENT_PROVIDER" ] && die "No provider selected!"
-    printf "\033[1;32mSelected: %s\033[0m\n" "$(provider_get_name "$CURRENT_PROVIDER")"
+    printf "\033[1;32mSelected: %s\033[0m\n" "$(provider_get_name "$CURRENT_PROVIDER")" || true
 }
 
+# shellcheck disable=SC2154
 resolve_provider_quality() {
     links="$(provider_get_links "$CURRENT_PROVIDER")"
     [ -z "$links" ] && return 1
