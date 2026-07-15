@@ -97,7 +97,7 @@ provider_fetch_streams() {
 
 # shellcheck disable=SC2154
 provider_get_links() {
-    sort -g -r -s < "$PROVIDER_CACHE_DIR/$1" 2>/dev/null
+    sort -g -r -s <"$PROVIDER_CACHE_DIR/$1" 2>/dev/null
 }
 
 # shellcheck disable=SC2154,SC2016
@@ -179,7 +179,7 @@ select_provider() {
     idx=1
     for p in $PROVIDER_AVAILABLE; do
         display="$(provider_get_display "$p")"
-        printf "%s\t%s\t%s\n" "$idx" "$p" "$display" >> "$provider_menu_file"
+        printf "%s\t%s\t%s\n" "$idx" "$p" "$display" >>"$provider_menu_file"
         provider_menu="${provider_menu}${idx}	${p}	${display}
 "
         idx=$((idx + 1))
@@ -196,9 +196,9 @@ select_provider() {
         printf "%s\n" "------------------------------------------------"
         while IFS='	' read -r idx id display_text; do
             printf "%-3s %s\n" "$idx" "$display_text"
-        done < "$provider_menu_file"
+        done <"$provider_menu_file"
         printf "%s\n" "------------------------------------------------"
-        provider_names="$(cut -f3 < "$provider_menu_file")"
+        provider_names="$(cut -f3 <"$provider_menu_file")"
         provider_count=$(printf "%s" "$provider_names" | wc -l)
         PS3="Select provider (1-$provider_count): "
         # Use read instead of select for POSIX compliance
@@ -206,14 +206,16 @@ select_provider() {
             printf "%s" "$PS3"
             read -r selected_idx
             case "$selected_idx" in
-                ''|*[!0-9]*) continue ;;
-                *) selected_name=$(printf "%s\n" "$provider_names" | sed -n "${selected_idx}p")
-                   [ -n "$selected_name" ] && break ;;
+                '' | *[!0-9]*) continue ;;
+                *)
+                    selected_name=$(printf "%s\n" "$provider_names" | sed -n "${selected_idx}p")
+                    [ -n "$selected_name" ] && break
+                    ;;
             esac
         done
         CURRENT_PROVIDER="$(while IFS='	' read -r idx id display_text; do
             [ "$display_text" = "$selected_name" ] && printf "%s" "$id" && break
-        done < "$provider_menu_file")"
+        done <"$provider_menu_file")"
     fi
 
     rm -f "$provider_menu_file"
